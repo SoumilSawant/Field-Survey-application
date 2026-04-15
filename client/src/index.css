@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #0040a1;
+  --color-primary-container: #0056d2;
+  --color-surface: #f8f9fa;
+  --color-surface-lowest: #ffffff;
+  --color-surface-low: #f3f4f5;
+  --color-surface-high: #e7e8e9;
+  --color-surface-highest: #e1e3e4;
+  --color-on-surface: #191c1d;
+  --color-on-surface-variant: #424654;
+  --color-outline: #737785;
+  --color-outline-variant: #c3c6d6;
+  --color-secondary: #48626e;
+  --color-secondary-container: #cbe7f5;
+  --color-tertiary: #822800;
+  --color-tertiary-fixed: #ffdbcf;
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply min-h-screen;
+  }
+
+  body {
+    @apply m-0 bg-surface font-body text-on-surface antialiased;
+  }
+}
+
+@layer components {
+  .micro-label {
+    @apply text-[11px] font-semibold uppercase tracking-[0.22em] text-on-surface-variant;
+  }
+
+  .status-chip {
+    @apply inline-flex items-center gap-2 rounded-radius-pill border border-outline-variant bg-surface-container-low px-3 py-1 text-xs font-medium text-on-surface;
+  }
+
+  .editorial-card {
+    @apply rounded-radius-card border border-outline-variant bg-surface-container-lowest p-6 shadow-editorial;
+  }
+
+  .top-heartbeat-strip {
+    @apply h-1 w-full bg-gradient-to-r from-primary via-primary-container to-secondary;
+  }
+}

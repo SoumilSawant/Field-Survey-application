@@ -1,0 +1,91 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserRole {
+  ADMIN
+  EMPLOYEE
+}
+
+enum TemplateQuestionType {
+  text
+  dropdown
+  radio
+}
+
+enum SubmissionStatus {
+  DRAFT
+  PENDING_SYNC
+  SYNCED
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  passwordHash String
+  name         String?
+  role         UserRole     @default(EMPLOYEE)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  submissions  Submission[] @relation("SubmissionCreator")
+}
+
+model SurveyTemplate {
+  id          String       @id @default(cuid())
+  title       String
+  schemaJson  Json
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  submissions Submission[]
+}
+
+model Survey {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  title       String
+  description String?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  submissions Submission[]
+}
+
+model Submission {
+  id             String           @id @default(cuid())
+  referenceCode  String           @unique
+  respondentName String
+  region         String
+  notes          String?
+  responseJson   Json?
+  latitude       Float?
+  longitude      Float?
+  mediaUrls      Json?
+  status         SubmissionStatus @default(PENDING_SYNC)
+  syncedAt       DateTime?
+  surveyId       String?
+  templateId     String?
+  creatorId      String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  survey         Survey?          @relation(fields: [surveyId], references: [id], onDelete: SetNull)
+  template       SurveyTemplate?  @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  creator        User?            @relation("SubmissionCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+
+  @@index([surveyId])
+  @@index([templateId])
+  @@index([creatorId])
+  @@index([status])
+}
