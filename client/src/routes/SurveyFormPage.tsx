@@ -5,6 +5,7 @@ import PageShell from '../components/layout/PageShell'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import TextField from '../components/ui/TextField'
+import { useGeoWatermark } from '../hooks/useGeoWatermark'
 import { useCreateSubmission } from '../hooks/useSubmissions'
 import { useActiveSurveyTemplates, useSurveyTemplate } from '../hooks/useSurveyTemplates'
 
@@ -15,6 +16,7 @@ function SurveyFormPage() {
   const activeTemplateId = useMemo(() => templateId ?? templatesQuery.data?.[0]?.id, [templateId, templatesQuery.data])
   const templateQuery = useSurveyTemplate(activeTemplateId)
   const createSubmissionMutation = useCreateSubmission()
+  const { stampImage } = useGeoWatermark()
   const [respondentName, setRespondentName] = useState('')
   const [region, setRegion] = useState('')
   const [notes, setNotes] = useState('')
@@ -23,6 +25,7 @@ function SurveyFormPage() {
   const [longitude, setLongitude] = useState<number | null>(null)
   const [geoStatus, setGeoStatus] = useState('Locating...')
   const [mediaFiles, setMediaFiles] = useState<File[]>([])
+  const [isStamping, setIsStamping] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -54,8 +57,25 @@ function SurveyFormPage() {
     )
   }, [])
 
-  function handleMediaChange(event: React.ChangeEvent<HTMLInputElement>) {
-    setMediaFiles(Array.from(event.target.files ?? []))
+  async function handleMediaChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const newFiles = Array.from(event.target.files ?? [])
+    if (newFiles.length === 0) return
+
+    const coords = latitude !== null && longitude !== null
+      ? { lat: latitude, lng: longitude }
+      : null
+
+    setIsStamping(true)
+    try {
+      const stamped = await Promise.all(
+        newFiles.map((f) => stampImage(f, coords)),
+      )
+      setMediaFiles(stamped)
+    } catch {
+      setMediaFiles(newFiles)
+    } finally {
+      setIsStamping(false)
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -217,6 +237,13 @@ function SurveyFormPage() {
                 Mobile devices can open camera directly. Desktop opens file picker.
               </p>
 
+              {isStamping ? (
+                <p className="mt-2 flex items-center gap-2 text-xs text-[var(--color-on-surface-variant)]">
+                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--color-primary)] border-t-transparent" />
+                  Processing image…
+                </p>
+              ) : null}
+
               {mediaFiles.length > 0 ? (
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {mediaFiles.map((file) => {
@@ -248,7 +275,7 @@ function SurveyFormPage() {
           {error ? <p className="md:col-span-2 rounded-radius-card border border-[var(--color-error)] bg-[var(--color-error-container)] p-3 text-sm text-[var(--color-error)]">{error}</p> : null}
 
           <div className="md:col-span-2 flex justify-end">
-            <Button type="submit">Save Submission</Button>
+            <Button type="submit" disabled={isStamping}>Save Submission</Button>
           </div>
         </form>
       </Card>

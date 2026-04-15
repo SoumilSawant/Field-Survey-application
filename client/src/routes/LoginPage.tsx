@@ -8,10 +8,18 @@ import Card from '../components/ui/Card'
 import TextField from '../components/ui/TextField'
 import { useNavigate } from 'react-router-dom'
 
+type LoginRole = 'field' | 'admin'
+
+const demoCredentials: Record<LoginRole, { email: string; password: string }> = {
+  field: { email: 'field@org.org', password: 'field123' },
+  admin: { email: 'admin@org.org', password: 'admin123' },
+}
+
 function LoginPage() {
   const navigate = useNavigate()
-  const [email, setEmail] = useState('field@org.org')
-  const [password, setPassword] = useState('field123')
+  const [selectedRole, setSelectedRole] = useState<LoginRole>('field')
+  const [email, setEmail] = useState(demoCredentials.field.email)
+  const [password, setPassword] = useState(demoCredentials.field.password)
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -23,6 +31,13 @@ function LoginPage() {
 
     navigate('/dashboard', { replace: true })
   }, [navigate])
+
+  function handleRoleSwitch(role: LoginRole) {
+    setSelectedRole(role)
+    setEmail(demoCredentials[role].email)
+    setPassword(demoCredentials[role].password)
+    setError('')
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -40,6 +55,13 @@ function LoginPage() {
     }
   }
 
+  const tabBaseClass =
+    'flex-1 rounded-radius-pill px-4 py-2.5 text-sm font-semibold transition-all duration-200 outline-none'
+  const activeTabClass =
+    'bg-[var(--color-primary)] text-white shadow-md'
+  const inactiveTabClass =
+    'bg-transparent text-[var(--color-on-surface-variant)] hover:bg-[var(--color-surface-low)]'
+
   return (
     <Card className="w-full max-w-md space-y-6 p-8 shadow-editorial">
       <div>
@@ -48,7 +70,37 @@ function LoginPage() {
         <p className="mt-1 text-sm text-on-surface-variant">Access your employee and admin workspace.</p>
       </div>
 
-      <form className="space-y-4" onSubmit={handleSubmit}>
+      {/* Role Toggle */}
+      <div
+        className="flex gap-1 rounded-radius-pill border border-outline-variant bg-[var(--color-surface-high)] p-1"
+        role="tablist"
+        aria-label="Login role"
+      >
+        <button
+          type="button"
+          role="tab"
+          id="tab-field"
+          aria-selected={selectedRole === 'field'}
+          aria-controls="login-form"
+          className={`${tabBaseClass} ${selectedRole === 'field' ? activeTabClass : inactiveTabClass}`}
+          onClick={() => handleRoleSwitch('field')}
+        >
+          Field Agent
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-admin"
+          aria-selected={selectedRole === 'admin'}
+          aria-controls="login-form"
+          className={`${tabBaseClass} ${selectedRole === 'admin' ? activeTabClass : inactiveTabClass}`}
+          onClick={() => handleRoleSwitch('admin')}
+        >
+          Admin
+        </button>
+      </div>
+
+      <form id="login-form" className="space-y-4" onSubmit={handleSubmit} role="tabpanel" aria-labelledby={`tab-${selectedRole}`}>
         <TextField
           type="email"
           label="Email"
