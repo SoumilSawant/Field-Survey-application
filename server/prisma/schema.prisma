@@ -65,6 +65,7 @@ model Survey {
 
 model Submission {
   id             String           @id @default(cuid())
+  clientId       String?          @unique
   referenceCode  String           @unique
   respondentName String
   region         String

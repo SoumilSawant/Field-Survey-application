@@ -8,6 +8,7 @@ import { prisma } from '../lib/prisma'
 const router = Router()
 
 const createSubmissionSchema = z.object({
+  clientId: z.string().uuid().optional(),
   templateId: z.string().min(1),
   respondentName: z.string().min(2),
   region: z.string().min(2),
@@ -111,6 +112,21 @@ router.post('/', attachUser, upload.array('mediaFiles', 6), async (req, res, nex
     const latitude = parseOptionalFloat(payload.latitude)
     const longitude = parseOptionalFloat(payload.longitude)
 
+    // Idempotency check: if clientId is provided and already exists, return the existing record
+    if (payload.clientId) {
+      const existing = await prisma.submission.findUnique({
+        where: { clientId: payload.clientId },
+        include: {
+          template: { select: { title: true, id: true } },
+          creator: { select: { name: true, email: true, role: true } },
+        },
+      })
+
+      if (existing) {
+        return res.status(409).json({ submission: formatSubmission(existing), duplicate: true })
+      }
+    }
+
     const template = await prisma.surveyTemplate.findUnique({ where: { id: payload.templateId } })
 
     if (!template || !template.isActive) {
@@ -124,6 +140,7 @@ router.post('/', attachUser, upload.array('mediaFiles', 6), async (req, res, nex
 
     const submission = await prisma.submission.create({
       data: {
+        clientId: payload.clientId ?? null,
         referenceCode,
         respondentName: payload.respondentName,
         region: payload.region,

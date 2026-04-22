@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { clearSession } from '../../lib/session'
+import OfflineBanner from '../ui/OfflineBanner'
 
 const fieldNavItems = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -29,6 +30,8 @@ function FieldLayout({ children }: FieldLayoutProps) {
           </div>
         </div>
       </header>
+
+      <OfflineBanner />
 
       <main className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-8">
         {children ?? <Outlet />}

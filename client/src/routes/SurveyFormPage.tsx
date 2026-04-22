@@ -6,8 +6,11 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import TextField from '../components/ui/TextField'
 import { useGeoWatermark } from '../hooks/useGeoWatermark'
-import { useCreateSubmission } from '../hooks/useSubmissions'
 import { useActiveSurveyTemplates, useSurveyTemplate } from '../hooks/useSurveyTemplates'
+import { useOfflineSync } from '../hooks/useOfflineSync'
+import { useDraftPersistence } from '../hooks/useDraftPersistence'
+import { useNetworkStatus } from '../hooks/useNetworkStatus'
+import type { OfflineSubmission } from '../lib/db'
 
 function SurveyFormPage() {
   const navigate = useNavigate()
@@ -15,8 +18,11 @@ function SurveyFormPage() {
   const templatesQuery = useActiveSurveyTemplates()
   const activeTemplateId = useMemo(() => templateId ?? templatesQuery.data?.[0]?.id, [templateId, templatesQuery.data])
   const templateQuery = useSurveyTemplate(activeTemplateId)
-  const createSubmissionMutation = useCreateSubmission()
   const { stampImage } = useGeoWatermark()
+  const { saveOfflineSubmission, pendingCount, submissions } = useOfflineSync()
+  const { save: saveDraftState, restore: restoreDraft, discard: discardDraft } = useDraftPersistence(activeTemplateId)
+  const isOnline = useNetworkStatus()
+
   const [respondentName, setRespondentName] = useState('')
   const [region, setRegion] = useState('')
   const [notes, setNotes] = useState('')
@@ -26,14 +32,20 @@ function SurveyFormPage() {
   const [geoStatus, setGeoStatus] = useState('Locating...')
   const [mediaFiles, setMediaFiles] = useState<File[]>([])
   const [isStamping, setIsStamping] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [draftRestored, setDraftRestored] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+
+  // -- Navigate to first template if none specified -------------------------
 
   useEffect(() => {
     if (!templateId && templatesQuery.data?.[0]?.id) {
       navigate(`/surveys/new/${templatesQuery.data[0].id}`, { replace: true })
     }
   }, [navigate, templateId, templatesQuery.data])
+
+  // -- Geolocation ----------------------------------------------------------
 
   useEffect(() => {
     if (!('geolocation' in navigator)) {
@@ -57,6 +69,39 @@ function SurveyFormPage() {
     )
   }, [])
 
+  // -- Restore draft on mount -----------------------------------------------
+
+  useEffect(() => {
+    if (!activeTemplateId) return
+
+    restoreDraft().then((draft) => {
+      if (draft) {
+        setRespondentName(draft.respondentName)
+        setRegion(draft.region)
+        setNotes(draft.notes)
+        setResponses(draft.responses)
+        setDraftRestored(true)
+      }
+    }).catch(() => {
+      // Non-critical
+    })
+  }, [activeTemplateId, restoreDraft])
+
+  // -- Auto-save draft on every field change --------------------------------
+
+  useEffect(() => {
+    if (!activeTemplateId) return
+
+    saveDraftState({
+      respondentName,
+      region,
+      notes,
+      responses,
+    })
+  }, [activeTemplateId, respondentName, region, notes, responses, saveDraftState])
+
+  // -- Media handling with geo-watermark ------------------------------------
+
   async function handleMediaChange(event: React.ChangeEvent<HTMLInputElement>) {
     const newFiles = Array.from(event.target.files ?? [])
     if (newFiles.length === 0) return
@@ -78,17 +123,22 @@ function SurveyFormPage() {
     }
   }
 
+  // -- Offline-first submit -------------------------------------------------
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
     setMessage('')
 
-    try {
-      if (!templateQuery.data) {
-        throw new Error('No template selected')
-      }
+    if (!templateQuery.data) {
+      setError('No template selected')
+      return
+    }
 
-      const response = await createSubmissionMutation.mutateAsync({
+    setIsSaving(true)
+
+    try {
+      const clientId = await saveOfflineSubmission({
         templateId: templateQuery.data.id,
         respondentName,
         region,
@@ -99,16 +149,29 @@ function SurveyFormPage() {
         mediaFiles,
       })
 
-      setMessage(`Saved ${response.submission.referenceCode} with status ${response.submission.status}`)
+      // Discard draft — the submission is safely persisted
+      await discardDraft()
+
+      const statusMsg = isOnline
+        ? `Saved locally & syncing now (${clientId.slice(0, 8)}…)`
+        : `Saved locally — will sync when online (${clientId.slice(0, 8)}…)`
+      setMessage(statusMsg)
+
+      // Reset form for next entry
       setRespondentName('')
       setRegion('')
       setNotes('')
       setResponses({})
       setMediaFiles([])
+      setDraftRestored(false)
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Unable to save submission')
+    } finally {
+      setIsSaving(false)
     }
   }
+
+  // -- Loading / error gates ------------------------------------------------
 
   if (templatesQuery.isLoading || templateQuery.isLoading) {
     return (
@@ -132,13 +195,35 @@ function SurveyFormPage() {
 
   const template = templateQuery.data
 
+  // -- Pending local submissions for this template --------------------------
+
+  const localPending = submissions.filter(
+    (s) => s.templateId === template.id && s.status !== 'SYNCED',
+  )
+
   return (
     <PageShell
       sectionLabel="Field Entry"
       title={template.title}
       description="Capture household and respondent details with validation-ready fields."
-      actions={<span className="status-chip">{template.schemaJson.questions.length} questions</span>}
+      actions={
+        <div className="flex items-center gap-2">
+          {pendingCount > 0 ? (
+            <span className="status-chip bg-[var(--color-tertiary-fixed)] text-[var(--color-tertiary)]">
+              {pendingCount} queued
+            </span>
+          ) : null}
+          <span className="status-chip">{template.schemaJson.questions.length} questions</span>
+        </div>
+      }
     >
+      {/* Draft restored indicator */}
+      {draftRestored ? (
+        <div className="mb-4 rounded-radius-card border border-outline-variant bg-surface-container-lowest p-3 text-sm text-on-surface-variant">
+          📝 Draft restored from a previous session.
+        </div>
+      ) : null}
+
       <Card className="p-6 shadow-editorial">
         <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
           <TextField label="Respondent Name" value={respondentName} onChange={(event) => setRespondentName(event.target.value)} />
@@ -274,12 +359,68 @@ function SurveyFormPage() {
           {message ? <p className="md:col-span-2 rounded-radius-card border border-outline-variant bg-surface-container-lowest p-3 text-sm text-on-surface-variant">{message}</p> : null}
           {error ? <p className="md:col-span-2 rounded-radius-card border border-[var(--color-error)] bg-[var(--color-error-container)] p-3 text-sm text-[var(--color-error)]">{error}</p> : null}
 
-          <div className="md:col-span-2 flex justify-end">
-            <Button type="submit" disabled={isStamping}>Save Submission</Button>
+          <div className="md:col-span-2 flex items-center justify-between">
+            <p className="text-xs text-on-surface-variant">
+              {!isOnline ? '⚡ Offline mode — data saved locally' : ''}
+            </p>
+            <Button type="submit" disabled={isStamping || isSaving}>
+              {isSaving ? 'Saving…' : 'Save Submission'}
+            </Button>
           </div>
         </form>
       </Card>
+
+      {/* Local sync queue for this template */}
+      {localPending.length > 0 ? (
+        <Card className="mt-6 p-5">
+          <p className="micro-label">Local Queue</p>
+          <h3 className="mt-1 font-headline text-lg font-semibold">Pending Submissions</h3>
+          <div className="mt-4 space-y-3">
+            {localPending.map((sub) => (
+              <SyncStatusRow key={sub.clientId} submission={sub} />
+            ))}
+          </div>
+        </Card>
+      ) : null}
     </PageShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Inline sub-component: per-submission sync status
+// ---------------------------------------------------------------------------
+
+function SyncStatusRow({ submission }: { submission: OfflineSubmission }) {
+  const statusConfig: Record<string, { label: string; color: string }> = {
+    PENDING_SYNC: { label: 'Not Synced', color: 'text-[var(--color-tertiary)]' },
+    SYNCING: { label: 'Syncing…', color: 'text-[var(--color-primary)]' },
+    SYNCED: { label: 'Synced', color: 'text-green-600' },
+    FAILED: { label: 'Retry pending', color: 'text-[var(--color-error)]' },
+  }
+
+  const config = statusConfig[submission.status] ?? statusConfig.PENDING_SYNC
+
+  return (
+    <article className="flex items-center justify-between rounded-radius-card border border-outline-variant bg-surface-container-lowest p-3">
+      <div>
+        <p className="text-sm font-medium text-on-surface">
+          {submission.respondentName || 'Unnamed'} · {submission.region || 'No region'}
+        </p>
+        <p className="mt-0.5 text-xs text-on-surface-variant">
+          {new Date(submission.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+          {submission.files.length > 0 ? ` · ${submission.files.length} file${submission.files.length > 1 ? 's' : ''}` : ''}
+        </p>
+        {submission.errorMessage ? (
+          <p className="mt-1 text-xs text-[var(--color-error)]">{submission.errorMessage}</p>
+        ) : null}
+      </div>
+      <span className={`text-xs font-semibold ${config.color}`}>
+        {submission.status === 'SYNCING' ? (
+          <span className="mr-1 inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        ) : null}
+        {config.label}
+      </span>
+    </article>
   )
 }
 
